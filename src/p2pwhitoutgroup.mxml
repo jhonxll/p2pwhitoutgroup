@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Application xmlns:fx="http://ns.adobe.com/mxml/2009"
+			   xmlns:s="library://ns.adobe.com/flex/spark"
+			   xmlns:mx="library://ns.adobe.com/flex/mx"
+			   width="100%" height="100%">
+	<fx:Script>
+		<![CDATA[
+			
+			import flash.media.Camera;
+			import flash.media.Video;
+			
+			import mx.core.UIComponent;
+			
+			private const SERVER_ADDRESS:String = "rtmfp://10.0.12.192:1935/bb16f52e86e5518f8b4ac039-72b680228fdf/";
+			private const DEVELOPER_KEY:String = "bb16f52e86e5518f8b4ac039-72b680228fdf";
+			
+			private var nc:NetConnection;
+			private var myPeerID:String;
+			private var farPeerID:String;
+			// streams
+			private var sendStream:NetStream;
+			private var recvStream:NetStream;
+			
+			private var _camera:Camera;
+			
+			private function initConnection():void{
+				dlog("initConnection");
+				if(txtFingerprint.text){
+					farPeerID = txtFingerprint.text;
+				}
+				
+				nc = new NetConnection();
+				nc.addEventListener(NetStatusEvent.NET_STATUS,ncStatus);
+				nc.connect("rtmfp://10.0.12.192:1935");
+//				nc.connect(SERVER_ADDRESS+DEVELOPER_KEY);
+			}
+			
+			private function ncStatus(event:NetStatusEvent):void{
+				dlog(event.info.code);
+				dlog("nearID:"+nc.nearID);
+				dlog("farID:"+nc.farID);
+				dlog("farNonce:"+nc.farNonce);
+				dlog("nearNonce:" + nc.nearNonce);
+				myPeerID = nc.nearID;
+				
+				txtFingerprint.text = myPeerID;
+			}
+			
+			private function initSendStream():void{
+				dlog("initSendStream");
+				
+				sendStream = new NetStream(nc,NetStream.DIRECT_CONNECTIONS);
+				sendStream.addEventListener(NetStatusEvent.NET_STATUS, netStatusHandler);
+				sendStream.publish("media");
+				
+				var sendStreamClient:Object = new Object();
+				sendStreamClient.onPeerConnect = function(callerns:NetStream):Boolean{
+				
+					farPeerID = callerns.farID;
+					
+					dlog("onPeerConnect "+farPeerID);
+					
+					return true;
+				}
+			
+				sendStream.client = sendStreamClient;
+			
+			}
+			private function dlog(str:String):void{
+				loginfo.text += str;
+				loginfo.text += "\n";
+				
+				trace(str);
+			}
+			
+			private function initRecvStream():void{
+				recvStream = new NetStream(nc,farPeerID);
+				recvStream.addEventListener(NetStatusEvent.NET_STATUS,netStatusHandler);
+				recvStream.play("media");
+				
+				recvStream.client = this;
+				attachCamera(null);
+			}
+			
+			private function netStatusHandler(event:NetStatusEvent):void{
+				
+				var message:Object;
+				dlog(event.info.code);
+				switch(event.info.code){
+					case "NetConnection.Connect.Success":
+						// <----- craete p2p group
+//						_ng = createNetGroup();
+						//						_ng.replicationStrategy = NetGroupReplicationStrategy.LOWEST_FIRST;
+						break;
+					
+					case "NetGroup.Connect.Success":
+						// <----- create stream to share camera
+//						_ns = createNetStream(_nc);
+						break;
+					
+					case "NetGroup.Neighbor.Connect":
+						// <----- send nearID to all users, when a user login
+//						sendNearID(_nc.nearID, _ng);
+						break;
+					
+					case "NetStream.Publish.Start":
+						// <_----- create owner camera
+						_camera = createCamera();
+						if(_camera)
+							_camera.addEventListener(ActivityEvent.ACTIVITY, cameraActivityHandler);
+						break;
+					
+					case "NetGroup.Posting.Notify":
+					case "NetGroup.SendTo.Notify":
+						// <----- receive nearID of sender
+//						attachCamera(_nc, event.info.message.nearID);
+						break;
+					
+					case "NetGroup.Neighbor.Disconnect":
+						// <----- remove video, when user is disconnection
+//						removeCamera(event.info.peerID);
+						break;
+				}
+			}
+			
+			private function createCamera():Camera{
+				var camera:Camera = Camera.getCamera();
+//				debugTxt.appendText("createCamera: " + camera + "\n");
+				if (camera){
+					var ui:UIComponent = new UIComponent();
+					var width:int = this.stage.width>320?320:this.stage.width;
+					var video:Video = new Video(480, 320);
+					camera.setMode(320, 240, 24.);
+					camera.setQuality(1638400, 85);
+					video.attachCamera(camera);
+					//					video.rotation = 90;
+					video.x = width;
+					ui.height = width;
+					ui.addChild(video);
+					vGroup.addElement(ui);
+					return camera;
+				}
+				return null;
+			}
+			private function cameraActivityHandler(event:ActivityEvent):void{
+//				debugTxt.appendText("cameraActivityHandler: " + event.activating + "\n");
+				_camera.removeEventListener(ActivityEvent.ACTIVITY, cameraActivityHandler);
+				sendStream.attachCamera(_camera);
+			}
+			
+			
+			// ****************************************************************** for receiver
+			public function attachCamera(str:String):void{
+				var ui:UIComponent = vGroup.getChildByName("ffff") as UIComponent;
+//				debugTxt.appendText("attachCamera: " + ui + "\n");
+				if(ui==null){
+//					var ns:NetStream = new NetStream(nc, nearID);
+//					recvStream.play("media1");
+					recvStream.client = this;
+					
+					var width:int = this.stage.width>320?320:this.stage.width;
+					var video:Video = new Video(480, 320);
+					ui = new UIComponent();
+//					ui.name = nearID;
+					ui.addChild(video);
+					video.attachNetStream(recvStream);
+					//					video.rotation = 90;
+					video.x = width;
+					vGroup.addElement(ui);
+				}
+			}
+			
+			public function receiveSomeData(str:String):void{
+				txtReceiveData.text = str;
+			}
+			
+			private function sendSomeData():void{
+				sendStream.send("receiveSomeData",txtSendData.text);
+				sendStream.send("attachCamera",null);
+			}
+			
+//			private function netStatusHandler(event:NetStatusEvent):void{
+//				dlog(event.info.code);
+//			}
+		]]>
+	</fx:Script>
+	<mx:TextInput x="10" y="10" width="391" id="txtFingerprint"/>
+	<mx:Button x="409" y="10" label="Connect" click="initConnection()"/>
+	<s:Scroller x="500" y="10" left="500" width="100%" height="320" chromeColor="#338D75" color="#1D1313">
+		<s:VGroup id="vGroup" width="100%" height="100%" color="#882929">
+		</s:VGroup>
+	</s:Scroller>
+	<mx:TextInput x="10" y="40" id="txtSendData"/>
+	<mx:TextInput x="10" y="70" id="txtReceiveData" width="251"/>
+	<mx:Button x="178" y="40" label="Send data" click="sendSomeData()"/>
+	<mx:Button x="10" y="100" label="initSendStream" click="initSendStream()"/>
+	<mx:Button x="132" y="100" label="initReceiveStream" click="initRecvStream();"/>
+	<mx:TextArea id="loginfo" 
+				 x="10" y="130" width="400" height="400" 
+				 text=""/>
+	
+	<fx:Declarations>
+		<!-- 将非可视元素（例如服务、值对象）放在此处 -->
+	</fx:Declarations>
+</s:Application>
